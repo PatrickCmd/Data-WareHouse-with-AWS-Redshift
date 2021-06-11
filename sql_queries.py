@@ -136,7 +136,8 @@ songplay_table_insert = ("""
     FROM songs_staging st
     JOIN log_events_staging ls
     ON st.artist_name = ls.artist
-    WHERE ls.userid IS NOT NULL;
+    WHERE ls.userid IS NOT NULL
+    AND ls.page = 'NextSong';
 """)
 
 # insert into target_table
