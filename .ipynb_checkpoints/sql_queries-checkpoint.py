@@ -25,33 +25,33 @@ staging_events_table_create= ("""
                                     gender VARCHAR,
                                     itemInSession SMALLINT,
                                     lastName VARCHAR,
-                                    length NUMERIC,
+                                    length DECIMAL,
                                     level VARCHAR,
                                     location VARCHAR,
                                     method VARCHAR,
                                     page VARCHAR,
-                                    registration BIGINT,
+                                    registration VARCHAR,
                                     sessionId SMALLINT,
                                     song VARCHAR,
                                     status SMALLINT,
                                     ts BIGINT,
                                     userAgent VARCHAR,
                                     userId SMALLINT
-                                    )
+                                    ) DISTKEY(staging_id) SORTKEY(staging_id);
 """)
 
 staging_songs_table_create = ("""
 CREATE TABLE songs_staging (staging_id INT IDENTITY(1,1) PRIMARY KEY,
                             artist_id VARCHAR,
-                            artist_latitude NUMERIC,
+                            artist_latitude DECIMAL,
                             artist_location VARCHAR,
-                            artist_longitude NUMERIC,
+                            artist_longitude DECIMAL,
                             artist_name VARCHAR,
                             duration NUMERIC,
                             num_song INTEGER,
                             song_id VARCHAR,
                             title VARCHAR,
-                            year SMALLINT)
+                            year SMALLINT) DISTKEY(staging_id) SORTKEY(staging_id);
 """)
 
 songplay_table_create = ("""
@@ -63,7 +63,7 @@ CREATE TABLE songplays (songplay_id INT IDENTITY(1,1) PRIMARY KEY,
                         artist_id VARCHAR,
                         session_id int NOT NULL,
                         location VARCHAR NULL,
-                        user_agent VARCHAR NOT NULL)
+                        user_agent VARCHAR NOT NULL) DISTKEY(songplay_id) SORTKEY(songplay_id);
 
 """)
 
@@ -72,7 +72,7 @@ CREATE TABLE users (user_id SMALLINT PRIMARY KEY,
                     first_name VARCHAR NOT NULL,
                     last_name VARCHAR NOT NULL,
                     gender VARCHAR NOT NULL,
-                    level VARCHAR NOT NULL)
+                    level VARCHAR NOT NULL) DISTKEY(user_id) SORTKEY(user_id);
 
 """)
 
@@ -81,7 +81,7 @@ CREATE TABLE songs (song_id VARCHAR PRIMARY KEY,
                     title VARCHAR NOT NULL,
                     artist_id VARCHAR NOT NULL,
                     year int NOT NULL,
-                    duration NUMERIC NOT NULL)
+                    duration NUMERIC NOT NULL) DISTKEY(song_id) SORTKEY(song_id);
 
 """)
 
@@ -90,7 +90,7 @@ CREATE TABLE artists (artist_id VARCHAR PRIMARY KEY,
                       name VARCHAR NOT NULL,
                       location VARCHAR NULL,
                       latitude NUMERIC NULL,
-                      longtitude NUMERIC NULL)
+                      longtitude NUMERIC NULL) DISTKEY(artist_id) SORTKEY(artist_id);
 
 """)
 
@@ -101,7 +101,7 @@ CREATE TABLE time (start_time TIMESTAMP PRIMARY KEY,
                    week INT NOT NULL,
                    month INT NOT NULL,
                    year INT NOT NULL,
-                   weekday INT NOT NULL)
+                   weekday INT NOT NULL) DISTKEY(start_time) SORTKEY(start_time);
 
 """)
 
@@ -136,36 +136,27 @@ songplay_table_insert = ("""
     FROM songs_staging st
     JOIN log_events_staging ls
     ON st.artist_name = ls.artist
+    AND st.title = ls.song
+    AND st.duration = ls.length
     WHERE ls.userid IS NOT NULL
     AND ls.page = 'NextSong';
 """)
 
 # insert into target_table
-
+# using CTE with ROW_NUMBER DESC ordering by ts
+# to always get the latest snapshot of the users data
+# and insert that in the users table.
 user_table_insert = ("""
     INSERT INTO users (user_id, first_name, last_name, gender, level) 
-    WITH free_level as (
-        SELECT DISTINCT userId, firstName, lastName, gender, level
+    WITH unique_users AS (
+        SELECT userId, firstName, lastName, gender, level,
+            ROW_NUMBER() OVER(PARTITION BY userId ORDER BY ts DESC) AS rank
         FROM log_events_staging
-        WHERE userID IS NOT NULL
-        AND level='free'
-    ),
-    paid_level as (
-        SELECT DISTINCT userId, firstName, lastName, gender, level
-        FROM log_events_staging
-        WHERE userID IS NOT NULL
-        AND level='paid'
-    ),
-    unique_users as (
-        SELECT *
-        FROM free_level
-        WHERE userId NOT IN (SELECT userId FROM paid_level)
-        UNION ALL
-        SELECT *
-        FROM paid_level
     )
     SELECT userId, firstName, lastName, gender, level
-    FROM unique_users;
+        FROM unique_users
+    WHERE rank = 1
+    AND userId IS NOT NULL;
 """)
 
 
